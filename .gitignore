@@ -1,0 +1,34 @@
+# Ambientes virtuais
+venv/
+env/
+ENV/
+.venv
+
+# Arquivos de ambiente
+.env
+
+# Pasta de arquivos internos/temporários
+arquivos/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Streamlit
+.streamlit/
+!.streamlit/secrets.toml.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
