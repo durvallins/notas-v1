@@ -23,20 +23,49 @@ def get_url(key, default=""):
     return os.getenv(key, default)
 
 # URLs das planilhas por turma
+# Para 4º Períodos: todos usam a mesma planilha, mas serão filtrados por turma
 URLS = {
-    "2º Período C - POO": get_url("URL_2P_C_POO"),
-    "4º Período A - ML": get_url("URL_4P_A_ML"),
-    "4º Período B - ML": get_url("URL_4P_B_ML"),
-    "4º Período C - ML": get_url("URL_4P_C_ML")
+    "2º Período C - POO": {
+        "url": get_url("URL_2P_C_POO"),
+        "filtro_turma": None  # Não precisa filtrar
+    },
+    "4º Período A - ML": {
+        "url": get_url("URL_4P_GERAL_ML"),
+        "filtro_turma": "4P_A"  # Filtrar pela coluna TURMA
+    },
+    "4º Período B - ML": {
+        "url": get_url("URL_4P_GERAL_ML"),
+        "filtro_turma": "4P_B"  # Filtrar pela coluna TURMA
+    },
+    "4º Período C - ML": {
+        "url": get_url("URL_4P_GERAL_ML"),
+        "filtro_turma": "4P_C"  # Filtrar pela coluna TURMA
+    }
 }
 
 # Carregar os dados com cache de 5 minutos
 @st.cache_data(ttl=300)  # Cache expira em 5 minutos (300 segundos)
-def load_data(url):
+def load_data(url, filtro_turma=None):
+    """
+    Carrega dados da planilha do Google Sheets.
+    
+    Args:
+        url: URL da planilha CSV
+        filtro_turma: Se fornecido, filtra pela coluna TURMA (ex: '4P_A', '4P_B', '4P_C')
+    """
     try:
         data = pd.read_csv(url)
         # Normalizar nomes das colunas
         data.columns = data.columns.str.strip()
+        
+        # Aplicar filtro de turma se necessário
+        if filtro_turma:
+            if 'TURMA' in data.columns:
+                data = data[data['TURMA'] == filtro_turma].copy()
+            else:
+                st.error(f"❌ Coluna 'TURMA' não encontrada na planilha!")
+                return None
+        
         return data
     except Exception as e:
         st.error(f"Erro ao carregar os dados: {e}")
@@ -197,6 +226,34 @@ st.markdown("""
         transform: translateY(-5px);
         box-shadow: 0 10px 25px rgba(0,0,0,0.2);
     }
+    
+    /* Estilos específicos para a média - DEVEM VIR DEPOIS */
+    .media-box-aprovado {
+        background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
+        backdrop-filter: blur(10px);
+        border: 3px solid rgba(255,255,255,0.3) !important;
+        box-shadow: 0 10px 30px rgba(40, 167, 69, 0.4) !important;
+    }
+    
+    .media-box-reprovado {
+        background: linear-gradient(135deg, #dc3545 0%, #c82333 100%) !important;
+        backdrop-filter: blur(10px);
+        border: 3px solid rgba(255,255,255,0.3) !important;
+        box-shadow: 0 10px 30px rgba(220, 53, 69, 0.4) !important;
+    }
+    
+    .media-box-aprovado:hover {
+        background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
+        transform: translateY(-8px) !important;
+        box-shadow: 0 15px 40px rgba(40, 167, 69, 0.6) !important;
+    }
+    
+    .media-box-reprovado:hover {
+        background: linear-gradient(135deg, #dc3545 0%, #c82333 100%) !important;
+        transform: translateY(-8px) !important;
+        box-shadow: 0 15px 40px rgba(220, 53, 69, 0.6) !important;
+    }
+    
     .nota-label {
         font-size: 1.1em;
         opacity: 0.95;
@@ -258,10 +315,14 @@ turma_selecionada = st.selectbox(
 # Verificar se uma turma foi selecionada
 if turma_selecionada != "Selecione uma opção...":
     # Carregar dados da turma selecionada
-    url = URLS.get(turma_selecionada)
+    config = URLS.get(turma_selecionada)
     
-    if url:
-        data = load_data(url)
+    if config and config.get("url"):
+        url = config["url"]
+        filtro_turma = config.get("filtro_turma")
+        
+        # Carregar dados com ou sem filtro
+        data = load_data(url, filtro_turma)
         
         if data is not None:
             # Mostrar informação de última atualização
@@ -300,94 +361,165 @@ if turma_selecionada != "Selecione uma opção...":
                         # Converter matrícula para int
                         matricula_int = int(matricula)
                         
-                        # Procurar pela matrícula (a coluna na planilha é 'MATRÍCULA' com acento)
-                        aluno_data = data[data['MATRÍCULA'] == matricula_int]
-
-                        if not aluno_data.empty:
-                            # Extrair dados do aluno
-                            nome = aluno_data.iloc[0]['Aluno']
-                            av_01 = aluno_data.iloc[0]['AV. 01']
-                            av_02 = aluno_data.iloc[0]['AV. 02']
-                            
-                            # Formatar notas para sempre ter 1 casa decimal
-                            def formatar_nota(nota):
-                                try:
-                                    return f"{float(nota):.1f}"
-                                except (ValueError, TypeError):
-                                    return nota
-                            
-                            av_01_formatada = formatar_nota(av_01)
-                            av_02_formatada = formatar_nota(av_02)
-                            
-                            # Verificar se o aluno fez as provas
-                            av_01_faltou = pd.isna(av_01) or av_01 == 0 or str(av_01).strip() == '' or str(av_01).upper() == '#N/A'
-                            av_02_faltou = pd.isna(av_02) or av_02 == 0 or str(av_02).strip() == '' or str(av_02).upper() == '#N/A'
-                            
-                            # Mostrar informações do aluno
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            st.success("✅ Aluno encontrado!")
-                            st.markdown(f"### 👤 {nome}")
-                            st.markdown(f"**Matrícula:** {matricula_int}")
-                            st.markdown("---")
-                            
-                            # Verificar se faltou alguma prova
-                            if av_01_faltou and av_02_faltou:
-                                st.error("⚠️ **Você não fez nenhuma das avaliações!**")
-                                st.warning("📞 Procure seu professor ou coordenador do curso para verificar sua situação.")
-                            elif av_01_faltou:
-                                st.warning("⚠️ **Você não fez a Avaliação 01 (AV_01).**")
-                                st.info("📞 Procure seu professor ou coordenador do curso.")
-                                # Mostrar apenas AV_02
-                                st.markdown(f"""
-                                <div class="result-card">
-                                    <div style="text-align: center;">
-                                        <div class="nota-box" style="max-width: 300px; margin: 0 auto;">
-                                            <div class="nota-label">📝 Avaliação 02</div>
-                                            <div class="nota-valor">{av_02_formatada}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                            elif av_02_faltou:
-                                st.warning("⚠️ **Você não fez a Avaliação 02 (AV_02).**")
-                                st.info("📞 Procure seu professor ou coordenador do curso.")
-                                # Mostrar apenas AV_01
-                                st.markdown(f"""
-                                <div class="result-card">
-                                    <div style="text-align: center;">
-                                        <div class="nota-box" style="max-width: 300px; margin: 0 auto;">
-                                            <div class="nota-label">📝 Avaliação 01</div>
-                                            <div class="nota-valor">{av_01_formatada}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                            else:
-                                # Mostrar ambas as notas normalmente
-                                st.markdown(f"""
-                                <div class="result-card">
-                                    <h2 style="text-align: center; margin-bottom: 5px;">✅ Suas Notas</h2>
-                                    <div class="aluno-nome">{nome}</div>
-                                    <div style="display: flex; gap: 20px; margin-top: 30px;">
-                                        <div class="nota-box" style="flex: 1;">
-                                            <div class="nota-label">📝 Avaliação 01</div>
-                                            <div class="nota-valor">{av_01_formatada}</div>
-                                        </div>
-                                        <div class="nota-box" style="flex: 1;">
-                                            <div class="nota-label">📝 Avaliação 02</div>
-                                            <div class="nota-valor">{av_02_formatada}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                            
+                        # Detectar nomes de colunas automaticamente
+                        col_matricula = None
+                        col_nome = None
+                        col_av01 = None
+                        col_av02 = None
+                        col_media = None
+                        
+                        for col in data.columns:
+                            col_upper = col.upper()
+                            if 'MATRÍCULA' in col_upper or 'MATRICULA' in col_upper:
+                                col_matricula = col
+                            elif 'NOME' in col_upper or 'ALUNO' in col_upper:
+                                col_nome = col
+                            elif 'AV' in col_upper and '01' in col_upper:
+                                col_av01 = col
+                            elif 'AV' in col_upper and '02' in col_upper:
+                                col_av02 = col
+                            elif 'MÉDIA' in col_upper or 'MEDIA' in col_upper:
+                                col_media = col
+                        
+                        # Verificar se todas as colunas foram encontradas
+                        if not all([col_matricula, col_nome, col_av01, col_av02]):
+                            st.error(f"❌ Erro: Colunas não encontradas!")
+                            st.info(f"Colunas disponíveis: {list(data.columns)}")
                         else:
-                            st.error("❌ Matrícula não encontrada. Verifique se digitou corretamente.")
+                            # Procurar pela matrícula
+                            aluno_data = data[data[col_matricula] == matricula_int]
+
+                            if not aluno_data.empty:
+                                # Extrair dados do aluno
+                                nome = aluno_data.iloc[0][col_nome]
+                                av_01 = aluno_data.iloc[0][col_av01]
+                                av_02 = aluno_data.iloc[0][col_av02]
+                                
+                                # Extrair ou calcular média
+                                if col_media and col_media in aluno_data.columns:
+                                    # Usar média da planilha
+                                    media = aluno_data.iloc[0][col_media]
+                                else:
+                                    # Calcular média (AV01 + AV02) / 2
+                                    try:
+                                        av_01_num = float(av_01) if not pd.isna(av_01) else 0
+                                        av_02_num = float(av_02) if not pd.isna(av_02) else 0
+                                        media = (av_01_num + av_02_num) / 2
+                                    except:
+                                        media = 0
+                                
+                                # Formatar notas para sempre ter 1 casa decimal
+                                def formatar_nota(nota):
+                                    try:
+                                        return f"{float(nota):.1f}"
+                                    except (ValueError, TypeError):
+                                        return nota
+                                
+                                av_01_formatada = formatar_nota(av_01)
+                                av_02_formatada = formatar_nota(av_02)
+                                media_formatada = formatar_nota(media)
+                                
+                                # Determinar status da média
+                                try:
+                                    media_num = float(media)
+                                    aprovado = media_num >= 7.0
+                                    
+                                    # Definir estilo inline direto (sem classes) - COR SÓLIDA PARA TESTE
+                                    if aprovado:
+                                        estilo_background = "background: #28a745;"  # Verde sólido
+                                        emoji_status = "🎉"
+                                        mensagem_status = "Você está APROVADO! Parabéns!"
+                                    else:
+                                        estilo_background = "background: #dc3545;"  # Vermelho sólido
+                                        emoji_status = "⚠️"
+                                        mensagem_status = "Você precisará fazer a PROVA FINAL (AF)."
+                                except Exception as e:
+                                    estilo_background = "background: rgba(255,255,255,0.15);"
+                                    emoji_status = "📊"
+                                    mensagem_status = ""
+                                    aprovado = None
+                                    emoji_status = "📊"
+                                    mensagem_status = ""
+                                    aprovado = None
+                                
+                                # Verificar se o aluno fez as provas
+                                av_01_faltou = pd.isna(av_01) or av_01 == 0 or str(av_01).strip() == '' or str(av_01).upper() == '#N/A'
+                                av_02_faltou = pd.isna(av_02) or av_02 == 0 or str(av_02).strip() == '' or str(av_02).upper() == '#N/A'
+                                
+                                # Mostrar informações do aluno
+                                st.markdown("<br>", unsafe_allow_html=True)
+                                st.success("✅ Aluno encontrado!")
+                                st.markdown(f"### 👤 {nome}")
+                                st.markdown(f"**Matrícula:** {matricula_int}")
+                                st.markdown("---")
+                                
+                                # Verificar se faltou alguma prova
+                                if av_01_faltou and av_02_faltou:
+                                    st.error("⚠️ **Você não fez nenhuma das avaliações!**")
+                                    st.warning("📞 Procure seu professor ou coordenador do curso para verificar sua situação.")
+                                elif av_01_faltou:
+                                    st.warning("⚠️ **Você não fez a Avaliação 01 (AV_01).**")
+                                    st.info("📞 Procure seu professor ou coordenador do curso.")
+                                    # Mostrar apenas AV_02
+                                    st.markdown(f"""
+                                    <div class="result-card">
+                                        <div style="text-align: center;">
+                                            <div class="nota-box" style="max-width: 300px; margin: 0 auto;">
+                                                <div class="nota-label">📝 Avaliação 02</div>
+                                                <div class="nota-valor">{av_02_formatada}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                elif av_02_faltou:
+                                    st.warning("⚠️ **Você não fez a Avaliação 02 (AV_02).**")
+                                    st.info("📞 Procure seu professor ou coordenador do curso.")
+                                    # Mostrar apenas AV_01
+                                    st.markdown(f"""
+                                    <div class="result-card">
+                                        <div style="text-align: center;">
+                                            <div class="nota-box" style="max-width: 300px; margin: 0 auto;">
+                                                <div class="nota-label">📝 Avaliação 01</div>
+                                                <div class="nota-valor">{av_01_formatada}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                else:
+                                    # Mostrar ambas as notas + média
+                                    st.markdown(f"""
+                                    <div class="result-card">
+                                        <h2 style="text-align: center; margin-bottom: 5px;">✅ Suas Notas</h2>
+                                        <div class="aluno-nome">{nome}</div>
+                                        <div style="display: flex; gap: 15px; margin-top: 30px; flex-wrap: wrap; justify-content: center;">
+                                            <div class="nota-box" style="flex: 1; min-width: 150px;">
+                                                <div class="nota-label">📝 Avaliação 01</div>
+                                                <div class="nota-valor">{av_01_formatada}</div>
+                                            </div>
+                                            <div class="nota-box" style="flex: 1; min-width: 150px;">
+                                                <div class="nota-label">📝 Avaliação 02</div>
+                                                <div class="nota-valor">{av_02_formatada}</div>
+                                            </div>
+                                            <div style="flex: 1; min-width: 150px; {estilo_background} backdrop-filter: blur(10px); padding: 25px; border-radius: 15px; text-align: center; margin: 10px 0; transition: all 0.3s ease; border: 3px solid rgba(255,255,255,0.3); box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+                                                <div class="nota-label">{emoji_status} MÉDIA</div>
+                                                <div class="nota-valor">{media_formatada}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    # Mostrar mensagem de status
+                                    if mensagem_status:
+                                        if aprovado is True:
+                                            st.success(f"🎉 **{mensagem_status}**")
+                                        elif aprovado is False:
+                                            st.warning(f"⚠️ **{mensagem_status}**")
+                                            st.info("💡 **Dica:** A nota mínima para aprovação direta é 7.0. Na prova final, você precisará atingir a média necessária para aprovação.")
+                            else:
+                                st.error("❌ Matrícula não encontrada. Verifique se digitou corretamente.")
                             
                     except ValueError:
                         st.error("❌ Por favor, digite apenas números na matrícula.")
-                    except KeyError as e:
-                        st.error(f"❌ Erro ao acessar coluna: {e}")
                         st.info(f"Colunas disponíveis: {list(data.columns)}")
                     except Exception as e:
                         st.error(f"❌ Erro ao processar: {e}")
